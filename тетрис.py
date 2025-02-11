@@ -1,5 +1,6 @@
 import pygame
 import random
+import os
 
 # Инициализация pygame
 pygame.init()
@@ -46,6 +47,9 @@ font = pygame.font.SysFont("Impact", 30)
 # Загрузка фонового изображения
 background_image = pygame.image.load("background.jpg")
 background_image = pygame.transform.scale(background_image, (WIDTH + 180, HEIGHT))
+
+# Имя файла для сохранения
+SAVE_FILE = "tetris_save.txt"
 
 
 # Класс фигуры
@@ -117,31 +121,91 @@ def draw_text(text, x, y, color=WHITE, background=None):
     screen.blit(text_surface, (x, y))
 
 
+# Функция сохранения прогресса
+def save_game(score, level, grid, current_piece, next_piece):
+    with open(SAVE_FILE, "w") as file:
+        file.write(f"{score}\n")
+        file.write(f"{level}\n")
+        for row in grid:
+            file.write(" ".join([f"{cell[0]},{cell[1]},{cell[2]}" for cell in row]) + "\n")
+        file.write(f"{current_piece.x} {current_piece.y}\n")
+        file.write(";".join([",".join(map(str, row)) for row in current_piece.shape]) + "\n")
+        file.write(";".join([",".join(map(str, row)) for row in next_piece.shape]) + "\n")
+        file.write(f"{current_piece.color[0]},{current_piece.color[1]},{current_piece.color[2]}" + '\n')
+        file.write(f"{next_piece.color[0]},{next_piece.color[1]},{next_piece.color[2]}" + '\n')
+
+
+# Функция загрузки прогресса
+def load_game():
+    if not os.path.exists(SAVE_FILE):
+        return None
+
+    with open(SAVE_FILE, "r") as file:
+        lines = file.readlines()
+        score = int(lines[0].strip())
+        level = int(lines[1].strip())
+        grid = [[tuple(map(int, cell.split(','))) for cell in row.strip().split()] for row in lines[2:-5]]
+        current_piece_data = lines[-5].strip().split()
+        current_piece_x = int(current_piece_data[0])
+        current_piece_y = int(current_piece_data[1])
+        current_piece_shape = [list(map(int, row.split(','))) for row in lines[-4].strip().split(';')]
+        next_piece_shape = [list(map(int, row.split(','))) for row in lines[-3].strip().split(';')]
+        current_piece_color = tuple(map(int, lines[-2].strip().split(',')))
+        next_piece_color = tuple(map(int, lines[-1].strip().split(',')))
+        current_piece = Piece(current_piece_shape)
+        current_piece.x = current_piece_x
+        current_piece.y = current_piece_y
+        current_piece.color = current_piece_color
+        next_piece = Piece(next_piece_shape)
+        next_piece.color = next_piece_color
+
+        return score, level, grid, current_piece, next_piece
+
+
 # Функция начального экрана
 def start_screen():
     screen.blit(background_image, (0, 0))
     draw_text("Тетрис", WIDTH // 2 - 40, HEIGHT // 2 - 150, BLACK)
     draw_text("Начать игру", WIDTH // 2 - 70, HEIGHT // 2 - 100, BLACK)
+    if os.path.exists(SAVE_FILE):
+        draw_text("Продолжить игру", WIDTH // 2 - 70, HEIGHT // 2 - 50, BLACK)
     pygame.display.update()
 
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
-                return False
+                return False, False
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = pygame.mouse.get_pos()
                 if WIDTH // 2 - 70 <= mouse_pos[0] <= WIDTH // 2 + 70 and HEIGHT // 2 - 100 <= mouse_pos[
                     1] <= HEIGHT // 2 - 100 + 40:
-                    return True
+                    return True, False
+                if os.path.exists(SAVE_FILE) and WIDTH // 2 - 70 <= mouse_pos[
+                    0] <= WIDTH // 2 + 70 and HEIGHT // 2 - 50 <= \
+                        mouse_pos[1] <= HEIGHT // 2 - 50 + 40:
+                    return True, True
 
 
 # Основная функция игры
-def game():
-    current_piece = Piece(random.choice(SHAPES))
-    next_piece = Piece(random.choice(SHAPES))
-    score = 0
-    level = 1
+def game(load_saved_game=False):
+    if load_saved_game:
+        saved_data = load_game()
+        if saved_data:
+            score, level, saved_grid, current_piece, next_piece = saved_data
+            for y in range(len(grid)):
+                for x in range(len(grid[y])):
+                    grid[y][x] = saved_grid[y][x]
+        else:
+            draw_text("Сохранение не найдено", WIDTH // 2 - 90, HEIGHT // 2 - 50, WHITE, BLACK)
+            pygame.display.update()
+            pygame.time.delay(2000)
+            load_saved_game = False
+    if not load_saved_game:
+        current_piece = Piece(random.choice(SHAPES))
+        next_piece = Piece(random.choice(SHAPES))
+        score = 0
+        level = 1
     fall_time = 0
     fall_speed = 0.3
     running = True
@@ -154,6 +218,24 @@ def game():
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                # Спрашиваем пользователя, хочет ли он сохранить прогресс
+                screen.blit(background_image, (0, 0))
+                draw_text("Сохранить игру?", WIDTH // 2 - 70, HEIGHT // 2 - 50, WHITE, BLACK)
+                draw_text("Да", WIDTH // 2 - 70, HEIGHT // 2, WHITE, BLACK)
+                draw_text("Нет", WIDTH // 2, HEIGHT // 2, WHITE, BLACK)
+                pygame.display.update()
+                save_choice = None
+                while save_choice is None:
+                    for event in pygame.event.get():
+                        if event.type == pygame.MOUSEBUTTONDOWN:
+                            mouse_pos = pygame.mouse.get_pos()
+                            if (WIDTH // 2 - 70 <= mouse_pos[0] <= WIDTH // 2 - 35 and HEIGHT // 2 <= mouse_pos[1]
+                                    <= HEIGHT // 2 + 40):
+                                save_game(score, level, grid, current_piece, next_piece)
+                                save_choice = True
+                            elif (WIDTH // 2 <= mouse_pos[0] <= WIDTH // 2 + 40 and HEIGHT // 2 <= mouse_pos[1]
+                                  <= HEIGHT // 2 + 40):
+                                save_choice = False
                 running = False
             if event.type == pygame.KEYDOWN:
                 if not game_over:
@@ -248,5 +330,6 @@ def game():
 
 
 # Запуск игры
-if start_screen():
-    game()
+start, load_saved = start_screen()
+if start:
+    game(load_saved)
